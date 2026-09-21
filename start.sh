@@ -43,9 +43,22 @@ trap cleanup EXIT INT TERM
 echo "fullstack-agent: starting from $HOME_DIR"
 
 if [ -d "$HOME_DIR/ai-visualizer" ] && [ "$MODE" != "hands" ]; then
-  (cd "$HOME_DIR/ai-visualizer" && exec python3 server.py) &
-  PIDS+=($!)
-  echo "  face:  starting (your browser opens on the visualizer)"
+  # NOT added to $PIDS, and launched under setsid, on purpose. The face
+  # is meant to run headless across restarts -- its own single-instance
+  # check already detects a live instance and defers to it instead of
+  # erroring. Two separate things were killing it on every restart
+  # before this: (1) THIS script's own cleanup trap, killing everything
+  # in $PIDS on exit -- fixed by leaving it out of $PIDS; (2) the
+  # controlling terminal closing when the old backtalk exits sends
+  # SIGHUP to every process still attached to that terminal, and plain
+  # `disown` only stops BASH's own exit-time cleanup, not the KERNEL
+  # sending SIGHUP when the terminal device itself goes away. setsid
+  # gives it its own session with no controlling terminal at all, so
+  # there is nothing for that HUP to reach.
+  (cd "$HOME_DIR/ai-visualizer" && exec setsid python3 server.py \
+    < /dev/null > /tmp/ai-visualizer.log 2>&1) &
+  disown
+  echo "  face:  starting (runs headless across restarts; Ctrl-C here stops the voice, not the face)"
 fi
 
 if [ -d "$HOME_DIR/barehands" ] && [ "$MODE" != "voice" ]; then
